@@ -1,0 +1,7 @@
+artifacts/
+__pycache__/
+*.pyc
+state.json
+state.json.*
+state-history-*.json
+恢复错误.log

@@ -1,0 +1,39 @@
+{
+  "version": "0.5.0",
+  "source": "Source files are fingerprinted below; published with this release in the same repository commit.",
+  "package": "EnvAnchor-0.5.0-win10-portable.zip",
+  "bytes": 134086,
+  "sha256": "cbe2924a2823afda422b03b62ed66cfabcaeb04125705e919159e4b4b3e694fa",
+  "exe": {
+    "name": "EnvAnchor-0.5.0.exe",
+    "bytes": 113152,
+    "sha256": "8d5a2d765e99755e4ac01ede7a09f81ccf3320c02f77822dcf8a8100aa7da843"
+  },
+  "sources": {
+    "Core.ps1": "44de0b52f71789ab75993f7ac526a5682a9e00e220db873c9262e76db541a2a5",
+    "EnvAnchor.ps1": "82e3ddbea1c8ade0d6b1916e9769b014a670cdcf5d5623858686775a7c9f34cd",
+    "Client.cs": "a668bb789cb12c3d4a495439169b0ffc2fce3e467e8e5fe700ffeb7dd81e6be1",
+    "Ui.cs": "f7625ef4ddaaec1dbf28eca939599ae54da2fa059aa12341d650f483b99460f0",
+    "Client.manifest": "ada36a79d8a242be32c672b9b7ed362f493a7f3ce7161c4c1a35a449be454871",
+    "tests/Core.Tests.ps1": "26496d072a4c63708245cf54948fdf0c0af0700048675db23faa415fc2761f10",
+    "README.md": "2e189112d97d42079d5602e82af3bb110d900e458c2494e68675858ae13f6317",
+    "build.py": "be9ba2fe46a4dbc881daef3f7ae272c8fef2ed9aa3ab55305ab5c424594264f6",
+    "make_assets.py": "d580d316bf77068ce842f19c3564c72e1d235be972f3945836f0d1b14862f48b",
+    "assets/app.ico": "aa257b44c0979d9cf986fc10fa1895af1371493ac9cffa54173d13feba38c075",
+    "assets/app.png": "b0fd80143a4234d68ffe6d5338cb96fe7a4c841fed0a5dcce2e7cf47e49dd30e",
+    "assets/app.svg": "3f6ee89e037fb6ad7de5a3b396222be5cbb5beb3e3bb075d6f4812cab140884e"
+  },
+  "verification": [
+    "ZIP CRC, allowlist, unique root, extracted byte equality",
+    "PE subsystem Windows GUI; runtime GetConsoleWindow is null",
+    "33 isolated checks through embedded engine in packaged EXE",
+    "GUI empty-selection validation, default-target action, bounds and offscreen render"
+  ],
+  "limitations": [
+    "No real shutdown/reset cycle or physical multi-drive test",
+    "No real user data or startup entries modified",
+    "No actual Clash/TUN integration test",
+    "Unsigned executable",
+    "High-DPI multi-monitor behavior not tested"
+  ]
+}
