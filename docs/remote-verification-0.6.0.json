@@ -1,0 +1,17 @@
+{
+  "EnvAnchor-0.6.0-win10-portable.zip": {
+    "bytes": 141952,
+    "sha256": "7544d0c3bc4ff13ca6ab70fe32b16aef1ddecc0b9a7732a89ef8751dc555eb6f",
+    "url": "https://github.com/turnsolesama/env-anchor/releases/download/v0.6.0/EnvAnchor-0.6.0-win10-portable.zip"
+  },
+  "EnvAnchor-0.6.0.exe": {
+    "bytes": 133632,
+    "sha256": "630027ea11c05e86abe4eb4c31e4770e309927321da92b9514e8f347a617cd3d",
+    "url": "https://github.com/turnsolesama/env-anchor/releases/download/v0.6.0/EnvAnchor-0.6.0.exe"
+  },
+  "verification-0.6.0.json": {
+    "bytes": 2280,
+    "sha256": "0e188ce7c247621ad9a2d979d8a6548973bc8ba4574f96d036d2f827d076870d",
+    "url": "https://github.com/turnsolesama/env-anchor/releases/download/v0.6.0/verification-0.6.0.json"
+  }
+}

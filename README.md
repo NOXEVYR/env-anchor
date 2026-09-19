@@ -10,7 +10,7 @@
 
 双击 `EnvAnchor.exe` 即可运行。迁移前退出相关软件，先用无重要数据的目录验证。自动重连入口仍需保存进系统还原基线。
 
-[上一版发布与校验记录](https://github.com/turnsolesama/env-anchor/blob/main/docs/RELEASE-0.5.0.md)
+[发布与校验记录](https://github.com/turnsolesama/env-anchor/blob/main/docs/RELEASE-0.6.0.md) · [49 项测试记录](https://github.com/turnsolesama/env-anchor/blob/main/docs/TESTING-0.6.0.md)
 
 ![环境锚点界面，路径为示意数据](docs/preview.png)
 
