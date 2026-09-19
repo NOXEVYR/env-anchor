@@ -2,15 +2,15 @@
 
 <h1 align="center">环境锚点 · EnvAnchor</h1>
 <p align="center">你的环境，安心保留。<br>Windows 10 个人文件与软件配置迁移工具</p>
-<p align="center"><b>0.5.0</b> · 单文件客户端 · 无控制台 · 本地运行</p>
+<p align="center"><b>0.6.0</b> · 单文件客户端 · 无控制台 · 后台迁移</p>
 
 ## 下载
 
-**[下载 Windows 便携包](https://github.com/turnsolesama/env-anchor/releases/download/v0.5.0/EnvAnchor-0.5.0-win10-portable.zip)** · [单文件 EXE](https://github.com/turnsolesama/env-anchor/releases/download/v0.5.0/EnvAnchor-0.5.0.exe) · [版本记录](https://github.com/turnsolesama/env-anchor/releases/tag/v0.5.0)
+**[下载 Windows 便携包](https://github.com/turnsolesama/env-anchor/releases/download/v0.6.0/EnvAnchor-0.6.0-win10-portable.zip)** · [单文件 EXE](https://github.com/turnsolesama/env-anchor/releases/download/v0.6.0/EnvAnchor-0.6.0.exe) · [版本记录](https://github.com/turnsolesama/env-anchor/releases/tag/v0.6.0)
 
 双击 `EnvAnchor.exe` 即可运行。迁移前退出相关软件，先用无重要数据的目录验证。自动重连入口仍需保存进系统还原基线。
 
-[发布与校验记录](docs/RELEASE-0.5.0.md)
+[上一版发布与校验记录](https://github.com/turnsolesama/env-anchor/blob/main/docs/RELEASE-0.5.0.md)
 
 ![环境锚点界面，路径为示意数据](docs/preview.png)
 
@@ -24,6 +24,7 @@ Windows 10 中文免安装工具。将桌面文件、文档、下载和指定软
 - 目标列显示实际路径；统一根目录下按名称和短标识分开保存，避免同名软件混在一起。
 - 已迁移项目可直接换位置：校验新副本后切换连接，旧数据保留；不必先复制回 C 盘。
 - 原创锚点图标、圆角卡片和按钮、勾选计数、键盘焦点反馈，以及可调整大小的窗口。
+- 后台复制与校验、阶段进度、项目连接状态、按勾选项撤销以及操作日志。
 
 - 双击 EXE 直接进入中文界面；引擎和界面内置在同一个文件中，无需旁边放置 PS1 或 CMD。
 - 使用 Windows GUI 程序入口，客户端不附加控制台，Robocopy 复制过程也不创建窗口。
@@ -50,11 +51,15 @@ Windows 10 中文免安装工具。将桌面文件、文档、下载和指定软
 
 ## 撤销和数据保护
 
-「撤销并还原文件」将各目标磁盘的最新内容复制回原目录，保留持久副本和历史备份，并移除本方案的登录入口。复制途中失败可再次撤销。C 盘仍受还原保护时，复制回去的数据下次开机仍可能被还原。
+「撤销勾选项目」只将选中项目的最新内容复制回原目录，保留持久副本和历史备份。其他项目保持连接；全部撤销后才移除本方案的登录入口。复制途中失败可再次撤销。C 盘仍受还原保护时，复制回去的数据下次开机仍可能被还原。
+
+「保存登录设置」可单独启用或停用当前方案的登录入口，不必再执行文件迁移。当前启动入口一次关联一个方案，仍需管理员将它保存进还原基线。
+
+复制和校验在后台运行。操作期间可以移动窗口，不能重复提交或关闭窗口；完成后恢复操作。方案目录内的 `operations.log` 记录结果与失败原因，不包含文件正文。多个窗口同时处理同一方案时，只允许一个任务执行。
 
 方案 `state.json` 存在保存位置，只适用于原 Windows 用户 SID。重装系统或更换用户后不自动复用。不要手工修改方案路径。原位置的 `*.env-anchor-backup-*` 是备份，确认数据完整后由用户决定是否清理。工具不会自动删除它们；迁移时原盘暂不释放空间。
 
-支持非系统盘的固定 NTFS 卷，请自行确认不会还原且盘符固定。拒绝含嵌套链接、OneDrive 云占位文件的目录。目标磁盘不可用时停止恢复或撤销，不先移除原联接。文件被占用、权限不足、空间不足时会停止；不要用其他管理员账户运行来替代原用户。数据量较大时校验耗时较长，窗口会暂时无法操作，请勿强制关闭。
+支持非系统盘的固定 NTFS 卷，请自行确认不会还原且盘符固定。拒绝含嵌套链接、OneDrive 云占位文件的目录。目标磁盘不可用时停止恢复或撤销，不先移除原联接。文件被占用、权限不足、空间不足时会停止；不要用其他管理员账户运行来替代原用户。数据量较大时校验耗时较长，请勿强制结束客户端。
 
 ## 范围
 
@@ -68,7 +73,7 @@ Windows 10 中文免安装工具。将桌面文件、文档、下载和指定软
 
 构建机需要 Python 和 Pillow（`python -m pip install Pillow`）。运行客户端不需要 Python。设计源文件见 [SVG 图标](assets/app.svg)，完整版本记录见 [CHANGELOG.md](CHANGELOG.md)。
 
-执行 `python build.py` 使用系统 .NET Framework C# 编译器构建内嵌脚本的 Windows GUI EXE，并对最终 ZIP 解压后的单文件客户端运行验证。检查 PE GUI 子系统、运行时无控制台、33 项合成目录测试、全选/取消全选、默认路径预览、界面按钮事件和离屏渲染。未更改真实用户配置、启动入口或代理。未完成真实关机还原和多显示器高 DPI 测试。
+执行 `python build.py` 使用系统 .NET Framework C# 编译器构建内嵌脚本的 Windows GUI EXE，并对最终 ZIP 解压后的单文件客户端运行验证。检查 PE GUI 子系统、运行时无控制台、49 项合成目录测试、全选/取消全选、默认路径预览、后台任务与消息循环、方案切换、隔离目录中的登录快捷方式和界面渲染。未更改真实用户配置、系统启动入口或代理。未完成真实关机还原和多显示器高 DPI 测试。
 
 执行 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\Core.Tests.ps1` 使用临时合成目录测试复制、挂接、模拟系统还原、再次挂接、撤销和链接拒绝。
 

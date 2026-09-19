@@ -30,6 +30,16 @@ function Assert-PlainTree($Path) {
 }
 function Copy-Verified($Source, $Target) {
     Assert-PlainTree $Source
+    if(Test-PathOverlap $Source $Target){throw '复制源和目标不能重叠。'}
+    if(Test-Path -LiteralPath $Target){Assert-PlainTree $Target}
+    $parent=Split-Path -Parent $Target
+    while($parent){
+        if(Test-Path -LiteralPath $parent){
+            if((Get-Item -LiteralPath $parent -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw '复制目标的父目录包含链接。'}
+        }
+        $parent=Split-Path -Parent $parent
+    }
+    Write-Progress -Activity '正在复制文件' -Status $Source -PercentComplete -1
     New-Item -ItemType Directory -Path $Target -Force | Out-Null
     $start=New-Object Diagnostics.ProcessStartInfo
     $start.FileName=Join-Path $env:SystemRoot 'System32\robocopy.exe'
@@ -44,11 +54,25 @@ function Copy-Verified($Source, $Target) {
         $result=$stdout.Result+$stderr.Result
         if ($process.ExitCode -ge 8) { throw "复制失败，原目录保留。请关闭相关软件并检查空间。$result" }
     } finally {$process.Dispose()}
-    foreach ($file in Get-ChildItem -LiteralPath $Source -File -Recurse -Force) {
+    $files=@(Get-ChildItem -LiteralPath $Source -File -Recurse -Force)
+    $completed=0
+    foreach ($file in $files) {
+        $completed++
+        Write-Progress -Activity '正在校验文件' -Status $file.Name -PercentComplete ([int](100*$completed/[Math]::Max(1,$files.Count)))
         $relative = $file.FullName.Substring($Source.TrimEnd('\').Length).TrimStart('\')
         $dest = Join-Path $Target $relative
         if (-not (Test-Path -LiteralPath $dest -PathType Leaf)) { throw "校验失败：$relative" }
         if ((Get-ContentHash $file.FullName) -ne (Get-ContentHash $dest)) { throw "内容发生变化或校验失败：$relative" }
+    }
+}
+function Assert-CopyMatches($Source,$Target) {
+    Assert-PlainTree $Source; Assert-PlainTree $Target
+    $files=@(Get-ChildItem -LiteralPath $Source -File -Recurse -Force)
+    if($files.Count -ne @(Get-ChildItem -LiteralPath $Target -File -Recurse -Force).Count){throw '复制完成后文件列表发生变化，请保留两份数据并重新迁移。'}
+    foreach($file in $files){
+        $relative=$file.FullName.Substring($Source.TrimEnd('\').Length).TrimStart('\')
+        $other=Join-Path $Target $relative
+        if(-not (Test-Path -LiteralPath $other -PathType Leaf) -or (Get-ContentHash $file.FullName) -ne (Get-ContentHash $other)){throw '复制完成后内容发生变化，已停止切换连接；请先关闭相关软件。'}
     }
 }
 function Get-ContentHash($Path) {
@@ -68,11 +92,15 @@ function Test-OurLink($Source, $Target) {
 }
 function Connect-Entry($Entry, $State, $Store) {
     if (-not (Test-Path -LiteralPath $Entry.Target -PathType Container)) { throw "持久数据目录不存在，停止恢复：$($Entry.Target)" }
-    if (Test-OurLink $Entry.Source $Entry.Target) { return }
+    if (Test-OurLink $Entry.Source $Entry.Target) {
+        if($Entry.Phase -eq 'Ready'){$Entry.Phase='Linked'; Save-State $State $Store}
+        return
+    }
     Assert-PlainTree $Entry.Target
     $backup = $null
     if (Test-Path -LiteralPath $Entry.Source) {
         Assert-PlainTree $Entry.Source
+        if($Entry.Phase -eq 'Ready'){Assert-CopyMatches $Entry.Source $Entry.Target}
         $backup = $Entry.Source + '.env-anchor-backup-' + [Guid]::NewGuid().ToString('N')
         $Entry.Backups = @($Entry.Backups) + $backup
         Save-State $State $Store
@@ -143,10 +171,26 @@ function Resume-State($State, $Store) {
         Connect-Entry $entry $State $Store
     }
 }
-function Undo-State($State, $Store) {
+function Undo-State($State, $Store, $Sources=@()) {
     foreach ($entry in @($State.Entries)) {
+        if(@($Sources).Count -and $Sources -inotcontains $entry.Source){continue}
         if ($entry.Phase -eq 'Restored') { continue }
-        if ($entry.Phase -eq 'RelocatingReady') { Complete-Relocation $entry $State $Store }
+        if($entry.Phase -eq 'Copying') {
+            if(-not (Test-Path -LiteralPath $entry.Source -PathType Container)){throw '首次复制未完成且原目录缺失，不能把部分副本当作完整数据恢复。请检查原目录和备份。'}
+            Assert-PlainTree $entry.Source
+            $entry.Phase='Restored'; Save-State $State $Store; continue
+        }
+        if ($entry.Phase -eq 'RelocatingReady') {
+            # Undo may abandon a stale staged copy while the original target is still authoritative.
+            $link=Get-Item -LiteralPath $entry.Source -Force -ErrorAction SilentlyContinue
+            if(-not $link -and (Test-Path -LiteralPath $entry.Target -PathType Container)){
+                New-Item -ItemType Junction -Path $entry.Source -Target $entry.Target | Out-Null
+                $link=Get-Item -LiteralPath $entry.Source -Force
+            }
+            if($link -and $link.LinkType -eq 'Junction' -and $link.Target[0] -ieq $entry.Target){
+                $entry.Phase='Linked'; $entry.PendingTarget=''; Save-State $State $Store
+            } else {Complete-Relocation $entry $State $Store}
+        }
         if ($entry.Phase -ne 'Copying' -and -not (Test-Path -LiteralPath $entry.Target -PathType Container)) {throw "目标磁盘或数据目录不可用，停止撤销：$($entry.Target)"}
         if (Test-OurLink $entry.Source $entry.Target) {
             $entry.Phase = 'Restoring'
@@ -179,22 +223,28 @@ function Complete-Relocation($Entry, $State, $Store) {
     $item=Get-Item -LiteralPath $Entry.Source -Force -ErrorAction SilentlyContinue
     if($item) {
         if($item.LinkType -ne 'Junction' -or @($item.Target).Count -ne 1) {throw '换位置前原目录必须是当前方案的连接，请先重新连接。'}
-        if($item.Target[0].TrimEnd('\') -ieq $old.TrimEnd('\')) {[IO.Directory]::Delete($Entry.Source)}
+        if($item.Target[0].TrimEnd('\') -ieq $old.TrimEnd('\')) {
+            Assert-CopyMatches $old $next
+            [IO.Directory]::Delete($Entry.Source)
+        }
         elseif($item.Target[0].TrimEnd('\') -ine $next.TrimEnd('\')) {throw '原目录链接已被其他程序修改，停止换位置。'}
     }
+    elseif(Test-Path -LiteralPath $old -PathType Container){Assert-CopyMatches $old $next}
     try {
         if(-not (Test-Path -LiteralPath $Entry.Source)) {New-Item -ItemType Junction -Path $Entry.Source -Target $next | Out-Null}
     } catch {
         if(-not (Test-Path -LiteralPath $Entry.Source)) {New-Item -ItemType Junction -Path $Entry.Source -Target $old | Out-Null}
         throw
     }
-    $Entry | Add-Member -NotePropertyName PreviousTargets -NotePropertyValue (@($old)) -Force
+    $history=@()
+    if($Entry.PSObject.Properties['PreviousTargets']){$history=@($Entry.PreviousTargets)}
+    $Entry | Add-Member -NotePropertyName PreviousTargets -NotePropertyValue ($history+@($old)) -Force
     $Entry.Target=$next; $Entry.PendingTarget=''; $Entry.Phase='Linked'
     Save-State $State $Store
 }
 function Move-EntryTarget($Entry, $Target, $State, $Store) {
     if($Entry.Phase -eq 'RelocatingReady'){Complete-Relocation $Entry $State $Store}
-    if($Entry.Target -ieq $Target){return}
+    if($Entry.Target -ieq $Target){Connect-Entry $Entry $State $Store; return}
     if($Entry.Phase -ne 'Linked' -and $Entry.Phase -ne 'Ready'){throw '请先完成上次迁移或撤销，再修改位置。'}
     $others=[pscustomobject]@{Entries=@($State.Entries | Where-Object {$_.Source -ine $Entry.Source})}
     Assert-EntryPaths $Entry.Source $Target $others $Store
@@ -204,4 +254,60 @@ function Move-EntryTarget($Entry, $Target, $State, $Store) {
     $Entry | Add-Member -NotePropertyName PendingTarget -NotePropertyValue $Target -Force
     $Entry.Phase='RelocatingReady'; Save-State $State $Store
     Complete-Relocation $Entry $State $Store
+}
+
+function Invoke-PlanOperation {
+    param([ValidateSet('Apply','Resume','Undo')][string]$Operation,[string]$Store,[string]$RequestsJson='[]')
+    $decoded=ConvertFrom-Json $RequestsJson
+    $requests=@($decoded)
+    if($Operation -eq 'Apply' -and -not $requests.Count){throw '请先勾选需要迁移的目录。'}
+    if(-not (Test-Path -LiteralPath $Store)) {
+        if($Operation -ne 'Apply'){throw '方案目录不存在。'}
+        New-Item -ItemType Directory -Path $Store -Force | Out-Null
+    }
+    $fresh=-not (Test-Path -LiteralPath (Join-Path $Store 'state.json'))
+    if($fresh -and $Operation -ne 'Apply'){throw '此目录没有保存的方案。'}
+    if($fresh -and @(Get-ChildItem -LiteralPath $Store -Force | Where-Object {$_.Name -ne '.operation.lock'}).Count){throw '首次使用请选择空方案目录。'}
+    try {$lock=[IO.File]::Open((Join-Path $Store '.operation.lock'),[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)}
+    catch {throw '此方案正在由另一个窗口或自动重连处理，请稍后再试。'}
+    try {
+        if($fresh){$state=[pscustomobject]@{Version=1;User=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;Entries=@()}}
+        else {$state=Read-State $Store}
+        if($Operation -eq 'Resume'){Resume-State $state $Store}
+        elseif($Operation -eq 'Undo') {
+            $sources=@($requests | ForEach-Object {$_.Source})
+            if($sources.Count -and -not @($state.Entries | Where-Object {$sources -icontains $_.Source -and $_.Phase -ne 'Restored'}).Count){throw '勾选项目中没有已迁移的目录。'}
+            Undo-State $state $Store $sources
+        } else {
+            $active=@($state.Entries | Where-Object {$_.Phase -ne 'Restored'})
+            $planned=[pscustomobject]@{Entries=@($active)}
+            foreach($job in $requests) {
+                $existing=@($active | Where-Object {$_.Source -ieq $job.Source})
+                $others=[pscustomobject]@{Entries=@($planned.Entries | Where-Object {$_.Source -ine $job.Source})}
+                if(-not $existing.Count -or $existing[0].Target -ine $job.Target){Assert-EntryPaths $job.Source $job.Target $others $Store}
+                if(-not $existing.Count){Assert-PlainTree $job.Source}
+                elseif($existing[0].Phase -notin @('Ready','Linked','RelocatingReady')){throw '方案包含未完成操作，请先重新连接或撤销该项目。'}
+                elseif($existing[0].Target -ine $job.Target -and (Test-PathOverlap $existing[0].Target $job.Target)){throw '新位置不能与旧数据目录重叠。'}
+                $planned.Entries=@($others.Entries)+@([pscustomobject]@{Source=$job.Source;Target=$job.Target})
+            }
+            if(@($state.Entries).Count -ne $active.Count){
+                Copy-Item -LiteralPath (Join-Path $Store 'state.json') -Destination (Join-Path $Store ('state-history-'+[Guid]::NewGuid().ToString('N')+'.json'))
+            }
+            $state.Entries=$active
+            Save-State $state $Store
+            foreach($job in $requests) {
+                $existing=@($state.Entries | Where-Object {$_.Source -ieq $job.Source})
+                Write-Progress -Activity '处理迁移项目' -Status $job.Name -PercentComplete -1
+                if($existing.Count){Move-EntryTarget $existing[0] $job.Target $state $Store}
+                else {Add-Entry $job.Source $job.Name $state $Store $job.Target}
+            }
+        }
+        ('{0:o} {1} 完成' -f [DateTime]::Now,$Operation) | Add-Content -LiteralPath (Join-Path $Store 'operations.log') -Encoding UTF8
+    } catch {
+        # Do not pollute a fresh directory when validation failed before a plan was created.
+        if(Test-Path -LiteralPath (Join-Path $Store 'state.json')) {
+            ('{0:o} {1} 失败: {2}' -f [DateTime]::Now,$Operation,$_.Exception.Message) | Add-Content -LiteralPath (Join-Path $Store 'operations.log') -Encoding UTF8
+        }
+        throw
+    } finally {$lock.Dispose()}
 }

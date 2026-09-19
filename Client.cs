@@ -8,8 +8,8 @@ using System.Windows.Forms;
 using System.Runtime.InteropServices;
 
 [assembly: AssemblyTitle("环境锚点")]
-[assembly: AssemblyVersion("0.5.0.0")]
-[assembly: AssemblyFileVersion("0.5.0.0")]
+[assembly: AssemblyVersion("0.6.0.0")]
+[assembly: AssemblyFileVersion("0.6.0.0")]
 internal static class Client
 {
     [DllImport("kernel32.dll")] private static extern IntPtr GetConsoleWindow();
@@ -41,6 +41,7 @@ internal static class Client
                 runspace.ThreadOptions = PSThreadOptions.UseCurrentThread;
                 runspace.Open();
                 runspace.SessionStateProxy.SetVariable("EnvAnchorExecutable", Application.ExecutablePath);
+                runspace.SessionStateProxy.SetVariable("EnvAnchorCore", Resource("Core.ps1"));
                 using(var stream=Assembly.GetExecutingAssembly().GetManifestResourceStream("app.png"))
                 using(var image=System.Drawing.Image.FromStream(stream))
                     runspace.SessionStateProxy.SetVariable("EnvAnchorMark",new System.Drawing.Bitmap(image));

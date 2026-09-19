@@ -31,14 +31,15 @@ function Get-Plan {
     Save-State $state $Store
     return $state
 }
-function Set-ResumeShortcut([bool]$Enabled) {
+function Set-ResumeShortcut([bool]$Enabled, [string]$StartupDirectory='') {
     $startup = [Environment]::GetFolderPath('Startup')
+    if($StartupDirectory){$startup=$StartupDirectory}
     $shortcutPath = Join-Path $startup 'EnvAnchor-Resume.lnk'
     if (-not $Enabled) {
         if (Test-Path -LiteralPath $shortcutPath) {
             $shell = New-Object -ComObject WScript.Shell
             $existing = $shell.CreateShortcut($shortcutPath)
-            if ($existing.Arguments.Contains($Store)) { Remove-Item -LiteralPath $shortcutPath }
+            if ($existing.Arguments.EndsWith(('"'+$Store+'"'),[StringComparison]::OrdinalIgnoreCase)) { Remove-Item -LiteralPath $shortcutPath }
         }
         return
     }
@@ -48,7 +49,7 @@ function Set-ResumeShortcut([bool]$Enabled) {
     if ($client) {
         $destination=Join-Path $toolDir 'EnvAnchor.exe'
         if ($client -ine $destination) {Copy-Item -LiteralPath $client -Destination $destination -Force}
-    } else { foreach ($name in @('Core.ps1','EnvAnchor.ps1','启动工具.cmd')) {
+    } else { foreach ($name in @('Core.ps1','EnvAnchor.ps1','Ui.cs','Worker.cs','启动工具.cmd')) {
         $src = Join-Path $PSScriptRoot $name
         $dst = Join-Path $toolDir $name
         if ($src -ine $dst) { Copy-Item -LiteralPath $src -Destination $dst -Force }
@@ -66,7 +67,7 @@ function Set-ResumeShortcut([bool]$Enabled) {
     $shortcut.Save()
 }
 if ($Mode -eq 'Resume') {
-    try { Assert-Store; $state=Read-State $Store; Resume-State $state $Store }
+    try { Assert-Store; Invoke-PlanOperation -Operation Resume -Store $Store }
     catch {
         # Do not create an empty persistence store if its drive is missing.
         if (Test-Path -LiteralPath $Store -PathType Container) { $_ | Out-String | Add-Content -LiteralPath (Join-Path $Store '恢复错误.log') -Encoding UTF8 }
@@ -78,6 +79,7 @@ if ($Mode -eq 'Resume') {
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 if(-not ('EnvAnchorUi.RoundedButton' -as [type])) {Add-Type -Path "$PSScriptRoot\Ui.cs" -ReferencedAssemblies System.Drawing,System.Windows.Forms}
+if(-not ('EnvAnchorUi.OperationWorker' -as [type])) {Add-Type -Path "$PSScriptRoot\Worker.cs" -ReferencedAssemblies ([System.Management.Automation.PSObject].Assembly.Location)}
 [Windows.Forms.Application]::EnableVisualStyles()
 $form=New-Object Windows.Forms.Form
 $form.Text='环境锚点 0.2.0 · Windows 10'; $form.ClientSize=New-Object Drawing.Size(960,710)
@@ -93,7 +95,7 @@ $browse=New-Object EnvAnchorUi.RoundedButton; $browse.Text='浏览'; $browse.Set
 $browse.Add_Click({$dialog=New-Object Windows.Forms.FolderBrowserDialog; if($dialog.ShowDialog() -eq 'OK'){$pathBox.Text=$dialog.SelectedPath}; $dialog.Dispose()})
 Label '勾选需要迁移的目录；选中一行后可单独指定目标文件夹' 24 138 900 26
 $list=New-Object Windows.Forms.ListView; $list.SetBounds(24,170,912,170); $list.CheckBoxes=$true; $list.View='Details'; $list.FullRowSelect=$true; $list.MultiSelect=$false; $list.HideSelection=$false; $form.Controls.Add($list)
-[void]$list.Columns.Add('目录',120); [void]$list.Columns.Add('原位置',350); [void]$list.Columns.Add('目标位置',410)
+[void]$list.Columns.Add('目录',120); [void]$list.Columns.Add('原位置',350); [void]$list.Columns.Add('目标位置',410); [void]$list.Columns.Add('状态',100)
 $script:choices=New-Object Collections.ArrayList
 $script:planStore=''
 function Add-Choice($Name,$Path) {
@@ -101,7 +103,7 @@ function Add-Choice($Name,$Path) {
     if (@($script:choices | Where-Object {$_.Path -ieq $Path}).Count) { return }
     [void]$script:choices.Add([pscustomobject]@{Name=$Name;Path=$Path;Target=''})
     $item=New-Object Windows.Forms.ListViewItem($Name)
-    [void]$item.SubItems.Add($Path); [void]$item.SubItems.Add('跟随默认保存目录（独立子文件夹）'); [void]$list.Items.Add($item)
+    [void]$item.SubItems.Add($Path); [void]$item.SubItems.Add('跟随默认保存目录（独立子文件夹）'); [void]$item.SubItems.Add('待迁移'); [void]$list.Items.Add($item)
 }
 Add-Choice '桌面文件' ([Environment]::GetFolderPath('Desktop'))
 Add-Choice '文档' ([Environment]::GetFolderPath('MyDocuments'))
@@ -160,19 +162,42 @@ $batchButton.Add_Click({
 function Open-Plan($Location) {
     $loaded=Read-State $Location
     $script:planStore=[IO.Path]::GetFullPath($Location).TrimEnd('\')
+    $list.Items.Clear(); $script:choices.Clear()
+    Add-Choice '桌面文件' ([Environment]::GetFolderPath('Desktop'))
+    Add-Choice '文档' ([Environment]::GetFolderPath('MyDocuments'))
+    Add-Choice '下载' ([Environment]::ExpandEnvironmentVariables($downloads))
     foreach($entry in $loaded.Entries) {
         if($entry.Phase -eq 'Restored'){continue}
         if(-not @($script:choices | Where-Object {$_.Path -ieq $entry.Source}).Count) {
             # Preserve missing/reset source entries so reconnect remains possible.
             [void]$script:choices.Add([pscustomobject]@{Name=$entry.Label;Path=$entry.Source;Target=$entry.Target})
             $item=New-Object Windows.Forms.ListViewItem($entry.Label)
-            [void]$item.SubItems.Add($entry.Source); [void]$item.SubItems.Add($entry.Target); [void]$list.Items.Add($item)
+            [void]$item.SubItems.Add($entry.Source); [void]$item.SubItems.Add($entry.Target); [void]$item.SubItems.Add('待迁移'); [void]$list.Items.Add($item)
         }
         for($i=0;$i -lt $script:choices.Count;$i++) {
-            if($script:choices[$i].Path -ieq $entry.Source){$script:choices[$i].Target=$entry.Target}
+            if($script:choices[$i].Path -ieq $entry.Source){
+                $script:choices[$i].Target=$entry.Target
+                $phaseNames=@{Copying='复制未完成';Ready='待连接';Restoring='撤销未完成';RelocatingReady='换位置待完成';Linked='已连接'}
+                $list.Items[$i].SubItems[3].Text=$phaseNames[$entry.Phase]
+                if($entry.Phase -eq 'Linked'){
+                    try {
+                        $label='需重连'
+                        if(-not (Test-Path -LiteralPath $entry.Target)){$label='目标离线'}
+                        elseif(Test-OurLink $entry.Source $entry.Target){$label='已连接'}
+                        $list.Items[$i].SubItems[3].Text=$label
+                    } catch {$list.Items[$i].SubItems[3].Text='链接冲突'}
+                }
+            }
         }
     }
     Update-TargetPreview
+    $shortcutPath=Join-Path ([Environment]::GetFolderPath('Startup')) 'EnvAnchor-Resume.lnk'
+    $auto.Checked=$false
+    if(Test-Path -LiteralPath $shortcutPath){
+        $shell=New-Object -ComObject WScript.Shell
+        $existing=$shell.CreateShortcut($shortcutPath)
+        $auto.Checked=$existing.Arguments.EndsWith(('"'+$script:planStore+'"'),[StringComparison]::OrdinalIgnoreCase)
+    }
     $status.Text="已打开方案：$script:planStore`r`n换位置：全选 → 修改默认路径 → 勾选项统一用默认路径 → 统一迁移。"
 }
 $openButton.Add_Click({
@@ -188,50 +213,86 @@ $apply=New-Object EnvAnchorUi.RoundedButton; $apply.Text='一键迁移'; $apply.
 $resume=New-Object EnvAnchorUi.RoundedButton; $resume.Text='重置后重新挂接'; $resume.SetBounds(198,522,180,38); $form.Controls.Add($resume)
 $undo=New-Object EnvAnchorUi.RoundedButton; $undo.Text='撤销并复制回原处'; $undo.SetBounds(392,522,200,38); $form.Controls.Add($undo)
 $status=New-Object Windows.Forms.TextBox; $status.Multiline=$true; $status.ReadOnly=$true; $status.ScrollBars='Vertical'; $status.SetBounds(24,583,912,103); $status.Text='就绪。备份和目标磁盘数据不会自动删除。方案位置也需要保存在不还原的磁盘。'; $form.Controls.Add($status)
-function Run-Action($Action) {
-    $apply.Enabled=$false; $resume.Enabled=$false; $undo.Enabled=$false
-    $form.UseWaitCursor=$true; $status.Text='正在处理和校验文件，请勿关闭窗口…'; $form.Refresh()
+$script:busy=$false
+$script:worker=$null
+$script:operation=''
+$timer=New-Object Windows.Forms.Timer; $timer.Interval=150
+function Set-Busy($Value) {
+    $script:busy=$Value
+    foreach($control in $form.Controls){
+        if($control -is [Windows.Forms.Button] -or $control -is [Windows.Forms.CheckBox] -or $control -eq $pathBox -or $control -eq $list){$control.Enabled=-not $Value}
+    }
+}
+function Start-Operation($Operation) {
     try {
+        if($script:busy){return}
+        if($Operation -in @('Apply','Undo') -and -not $list.CheckedIndices.Count){throw '请先勾选需要处理的目录。'}
         $script:Store=$pathBox.Text
         if($script:planStore){$script:Store=$script:planStore}
-        & $Action
-        $status.Text="完成。方案保存在：$Store`r`n备份仍保留在原目录旁。自动入口只有保存进还原基线后才可跨重置生效。"
-    } catch { $status.Text="未完成：$($_.Exception.Message)`r`n已完成的项目保存在方案中；请勿删除备份，可使用撤销。" }
-    finally {$apply.Enabled=$true; $resume.Enabled=$true; $undo.Enabled=$true; $form.UseWaitCursor=$false}
+        Assert-Store
+        $requests=@()
+        foreach($index in $list.CheckedIndices){
+            $choice=$script:choices[$index]
+            $target=$choice.Target
+            if(-not $target){$target=Get-DefaultTarget $pathBox.Text $choice.Name $choice.Path}
+            if($Operation -eq 'Apply'){Assert-PersistentPath $target}
+            $requests+=@([pscustomobject]@{Source=$choice.Path;Target=$target;Name=$choice.Name})
+        }
+        $core=Get-Variable EnvAnchorCore -ValueOnly -ErrorAction SilentlyContinue
+        if(-not $core){$core=Get-Content -LiteralPath "$PSScriptRoot\Core.ps1" -Raw}
+        $script:operation=$Operation
+        $script:requestedAuto=$auto.Checked
+        $script:selectedSources=@($requests | ForEach-Object {$_.Source})
+        $script:worker=New-Object EnvAnchorUi.OperationWorker
+        $script:worker.Start($core,$Operation,$Store,(ConvertTo-Json -InputObject @($requests) -Depth 5))
+        Set-Busy $true
+        $status.Text='正在后台处理，窗口可以正常移动。请保持相关软件关闭。'
+        $timer.Start()
+    } catch {
+        if($script:worker){$script:worker.Dispose(); $script:worker=$null}
+        Set-Busy $false
+        $status.Text='未开始：'+$_.Exception.Message
+    }
 }
-$apply.Add_Click({ Run-Action {
-    if($list.CheckedIndices.Count -eq 0) {throw '请先勾选需要迁移的目录。'}
-    $state=Get-Plan
-    if (@($state.Entries).Count -and @($state.Entries | Where-Object {$_.Phase -ne 'Restored'}).Count -eq 0) {
-        Copy-Item -LiteralPath (Join-Path $Store 'state.json') -Destination (Join-Path $Store ('state-history-'+[Guid]::NewGuid().ToString('N')+'.json'))
-        $state.Entries=@(); Save-State $state $Store
-    }
-    $planned=[pscustomobject]@{Entries=@($state.Entries)}
-    $jobs=@()
-    foreach($index in $list.CheckedIndices) {
-        $choice=$script:choices[$index]
-        $src=[IO.Path]::GetFullPath($choice.Path).TrimEnd('\')
-        if($Store.StartsWith($src+'\',[StringComparison]::OrdinalIgnoreCase) -or $src.StartsWith($Store+'\',[StringComparison]::OrdinalIgnoreCase) -or $src -ieq $Store) {throw '保存位置不能与迁移目录重叠。'}
-        $target=$choice.Target
-        if(-not $target){$target=Get-DefaultTarget $pathBox.Text $choice.Name $src}
-        Assert-PersistentPath $target
-        $existing=@($state.Entries | Where-Object {$_.Source -ieq $src})
-        $others=[pscustomobject]@{Entries=@($planned.Entries | Where-Object {$_.Source -ine $src})}
-        if(-not $existing.Count -or $existing[0].Target -ine $target) {Assert-EntryPaths $src $target $others $Store}
-        if($existing.Count) {
-            if($existing[0].Target -ine $target -and (Test-PathOverlap $existing[0].Target $target)){throw '新位置不能与旧数据目录重叠。'}
-        } else {Assert-PlainTree $src}
-        $planned.Entries=@($others.Entries)+@([pscustomobject]@{Source=$src;Target=$target})
-        $jobs+=@([pscustomobject]@{Source=$src;Target=$target;Name=$choice.Name;Existing=$existing})
-    }
-    foreach($job in $jobs){
-        if($job.Existing.Count){Move-EntryTarget $job.Existing[0] $job.Target $state $Store}
-        else {Add-Entry $job.Source $job.Name $state $Store $job.Target}
-    }
-    if($auto.Checked){Set-ResumeShortcut $true}
-} })
-$resume.Add_Click({ Run-Action { Assert-Store; $state=Read-State $Store; Resume-State $state $Store; if($auto.Checked){Set-ResumeShortcut $true} } })
-$undo.Add_Click({ Run-Action { Assert-Store; $state=Read-State $Store; Undo-State $state $Store; Set-ResumeShortcut $false } })
+$timer.Add_Tick({
+    if(-not $script:worker){return}
+    if(-not $script:worker.Completed){$status.Text=$script:worker.Progress; return}
+    $timer.Stop()
+    $errorText=$script:worker.Finish()
+    $script:worker.Dispose(); $script:worker=$null
+    Set-Busy $false
+    try {
+        if(Test-Path -LiteralPath (Join-Path $Store 'state.json')){
+            Open-Plan $Store
+            foreach($item in $list.Items){$item.Checked=$script:selectedSources -icontains $item.SubItems[1].Text}
+        }
+        if(-not $errorText){
+            if($script:operation -eq 'Undo'){
+                $state=Read-State $Store
+                if(-not @($state.Entries | Where-Object {$_.Phase -ne 'Restored'}).Count){Set-ResumeShortcut $false}
+            } elseif($script:requestedAuto){Set-ResumeShortcut $true; $auto.Checked=$true}
+            $status.Text="完成。方案：$Store`r`n操作日志：$(Join-Path $Store 'operations.log')；原数据与备份均保留。"
+        } else {$status.Text="未完成：$errorText`r`n请查看方案目录中的 operations.log。"}
+    } catch {$status.Text="文件操作结果：$errorText`r`n界面或登录入口更新失败：$($_.Exception.Message)"}
+})
+$form.Add_FormClosing({param($sender,$eventArgs)
+    if($script:busy){$eventArgs.Cancel=$true; $status.Text='正在处理文件，请等待当前操作完成后关闭。'}
+})
+$apply.Add_Click({Start-Operation 'Apply'})
+$resume.Add_Click({Start-Operation 'Resume'})
+$undo.Add_Click({Start-Operation 'Undo'})
+$startupButton=New-Object EnvAnchorUi.RoundedButton; $startupButton.Text='保存登录设置'; $form.Controls.Add($startupButton)
+$startupButton.Add_Click({
+    try {
+        $script:Store=$script:planStore
+        if(-not $Store){throw '请先打开或建立一个方案。'}
+        Assert-Store
+        $state=Read-State $Store
+        if($auto.Checked -and -not @($state.Entries | Where-Object {$_.Phase -ne 'Restored'}).Count){throw '没有需要重连的项目。'}
+        Set-ResumeShortcut $auto.Checked
+        $status.Text='登录设置已保存。需要管理员将入口保存进还原基线，才能跨系统重置自动执行。'
+    } catch {$status.Text=$_.Exception.Message}
+})
 
 # Unified desktop styling; all actions above retain the same data workflow.
 $form.Text='环境锚点'; $form.ClientSize=New-Object Drawing.Size(1080,790)
@@ -276,7 +337,7 @@ if(-not $mark.Image){$mark.Image=[Drawing.Image]::FromFile("$PSScriptRoot\assets
 $mark.BackColor=[Drawing.ColorTranslator]::FromHtml('#142D38'); $form.Controls.Add($mark)
 Text-Line '环境锚点' 94 30 110 32 16 '#FFFFFF' $true '#142D38'
 Text-Line 'ENV ANCHOR' 96 65 109 20 8 '#8FB5B5' $false '#142D38'
-Text-Line 'DESKTOP EDITION  /  0.5' 29 101 178 25 8 '#8FB5B5' $false '#142D38'
+Text-Line 'DESKTOP EDITION  /  0.6' 29 101 178 25 8 '#8FB5B5' $false '#142D38'
 Text-Line "重启之后，`n熟悉的环境还在。" 29 143 155 68 13 '#D8E8E8' $false '#142D38'
 Text-Line '01   选择保留位置' 29 263 164 26 11 '#FFFFFF' $true '#142D38'
 Text-Line '使用不会还原的磁盘' 29 297 167 24 9 '#8FB5B5' $false '#142D38'
@@ -300,7 +361,7 @@ $selectionLabel.Text='已选择 0 项'
 $list.Add_ItemChecked({$selectionLabel.Text=('已选择 '+$list.CheckedIndices.Count+' 项')})
 $allButton.SetBounds(838,262,74,32); $noneButton.SetBounds(922,262,106,32)
 $list.SetBounds(260,307,768,167); $list.BorderStyle='None'; $list.BackColor=[Drawing.Color]::White
-$list.Columns[0].Width=116; $list.Columns[1].Width=300; $list.Columns[2].Width=330
+$list.Columns[0].Width=102; $list.Columns[1].Width=246; $list.Columns[2].Width=295; $list.Columns[3].Width=100
 $rowImages=New-Object Windows.Forms.ImageList; $rowImages.ImageSize=New-Object Drawing.Size(1,32); $list.SmallImageList=$rowImages
 $list.ShowItemToolTips=$true
 $add.SetBounds(260,486,160,34); $add.Text='+  添加软件配置'
@@ -308,11 +369,12 @@ $targetButton.SetBounds(430,486,148,34); $targetButton.Text='修改单项目标'
 $defaultButton.SetBounds(588,486,140,34); $defaultButton.Text='单项跟随默认'
 $batchButton.SetBounds(738,486,290,34)
 $auto.SetBounds(257,568,270,26); $auto.Text='登录时自动重新连接'; $auto.BackColor=[Drawing.ColorTranslator]::FromHtml('#E7F1EE')
-Text-Line '需将登录入口保存进系统还原基线' 647 572 375 24 9 '#52786D' $false '#E7F1EE'
+Text-Line '入口需保存进还原基线' 554 572 266 24 9 '#52786D' $false '#E7F1EE'
+$startupButton.SetBounds(858,562,170,38)
 $apply.SetBounds(240,628,196,43); $apply.Text='统一迁移勾选项'
 $resume.SetBounds(450,628,196,43); $resume.Text='重置后重新连接'
-$undo.SetBounds(660,628,198,43); $undo.Text='撤销并还原文件'
-foreach($button in @($browse,$add,$targetButton,$defaultButton,$apply,$resume,$undo,$allButton,$noneButton,$batchButton,$openButton)) {
+$undo.SetBounds(660,628,198,43); $undo.Text='撤销勾选项目'
+foreach($button in @($browse,$add,$targetButton,$defaultButton,$apply,$resume,$undo,$allButton,$noneButton,$batchButton,$openButton,$startupButton)) {
     $button.FlatStyle='Flat'; $button.FlatAppearance.BorderColor=[Drawing.ColorTranslator]::FromHtml('#D9E1E7')
     $button.FlatAppearance.BorderSize=1
     $button.FlatAppearance.MouseOverBackColor=[Drawing.ColorTranslator]::FromHtml('#E8F1F0')
@@ -354,9 +416,39 @@ if ($SmokeTest) {
         if ($script:choices[0].Target) {throw '跟随默认位置的界面事件失败。'}
         $list.Items[0].Selected=$false
     }
-    foreach($control in @($pathBox,$list,$apply,$resume,$undo,$targetButton,$allButton,$batchButton,$openButton)) {
+    foreach($control in @($pathBox,$list,$apply,$resume,$undo,$targetButton,$allButton,$batchButton,$openButton,$startupButton)) {
         if(-not $control.Visible -or $control.Right -gt $form.ClientSize.Width -or $control.Bottom -gt $form.ClientSize.Height) {throw '界面控件可见性检查失败。'}
     }
+    $uiFixture=Join-Path $env:TEMP ('env-anchor-ui-'+[Guid]::NewGuid().ToString('N'))
+    $uiSource=Join-Path $uiFixture 'Input'; $uiStore=Join-Path $uiFixture 'Plan'; $uiTarget=Join-Path $uiFixture 'Data'
+    New-Item -ItemType Directory -Path $uiSource -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $uiSource 'setting.txt') -Value 'ui worker test'
+    $core=Get-Variable EnvAnchorCore -ValueOnly -ErrorAction SilentlyContinue
+    if(-not $core){$core=Get-Content -LiteralPath "$PSScriptRoot\Core.ps1" -Raw}
+    $probe=New-Object EnvAnchorUi.OperationWorker
+    $json=ConvertTo-Json -InputObject @([pscustomobject]@{Source=$uiSource;Target=$uiTarget;Name='测试'})
+    $probe.Start($core,'Apply',$uiStore,$json)
+    $deadline=[DateTime]::Now.AddSeconds(30); $pumped=0
+    while(-not $probe.Completed -and [DateTime]::Now -lt $deadline){[Windows.Forms.Application]::DoEvents(); $pumped++; Start-Sleep -Milliseconds 10}
+    if(-not $probe.Completed){throw '后台任务超时。'}
+    $workerError=$probe.Finish(); $probe.Dispose()
+    if($workerError -or -not $pumped -or -not (Test-OurLink $uiSource $uiTarget)){throw "后台任务与界面响应验证失败：$workerError"}
+    Open-Plan $uiStore
+    $firstCount=$list.Items.Count; Open-Plan $uiStore
+    if($list.Items.Count -ne $firstCount){throw '重复打开方案产生重复项目。'}
+    $otherPlan=Join-Path $uiFixture 'EmptyPlan'; New-Item -ItemType Directory -Path $otherPlan | Out-Null
+    Save-State ([pscustomobject]@{Version=1;User=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;Entries=@()}) $otherPlan
+    Open-Plan $otherPlan
+    if(@($script:choices | Where-Object {$_.Path -eq $uiSource}).Count){throw '切换方案残留上一个方案项目。'}
+    $startupFixture=Join-Path $uiFixture 'Startup'; New-Item -ItemType Directory -Path $startupFixture | Out-Null
+    $script:Store=$uiStore
+    Set-ResumeShortcut $true $startupFixture
+    $shell=New-Object -ComObject WScript.Shell
+    $shortcut=$shell.CreateShortcut((Join-Path $startupFixture 'EnvAnchor-Resume.lnk'))
+    if($clientPath -and (-not $shortcut.TargetPath.EndsWith('EnvAnchor.exe') -or $shortcut.Arguments -ne ('--resume --store "'+$uiStore+'"'))){throw '自动重连快捷方式参数错误。'}
+    Set-ResumeShortcut $false $startupFixture
+    if(Test-Path -LiteralPath (Join-Path $startupFixture 'EnvAnchor-Resume.lnk')){throw '取消自动重连失败。'}
+    $script:Store=$originalDefault; $script:planStore=''; $status.Text=$readyText
     # Public preview uses synthetic display paths; actual migration choices are untouched.
     for($i=0;$i -lt $list.Items.Count;$i++) {
         $list.Items[$i].SubItems[1].Text='C:\Users\Demo\'+(Split-Path $script:choices[$i].Path -Leaf)

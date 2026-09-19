@@ -1,0 +1,40 @@
+{
+  "version": "0.6.0",
+  "source": "Source files are fingerprinted below; published with this release in the same repository commit.",
+  "package": "EnvAnchor-0.6.0-win10-portable.zip",
+  "bytes": 141952,
+  "sha256": "7544d0c3bc4ff13ca6ab70fe32b16aef1ddecc0b9a7732a89ef8751dc555eb6f",
+  "exe": {
+    "name": "EnvAnchor-0.6.0.exe",
+    "bytes": 133632,
+    "sha256": "630027ea11c05e86abe4eb4c31e4770e309927321da92b9514e8f347a617cd3d"
+  },
+  "sources": {
+    "Core.ps1": "f156e798a2bb2586ea9e2720cd8a5a0254ca9447f1423f66967e43cf3c3015e9",
+    "EnvAnchor.ps1": "e0f7cc8205055011787d75f92ea60edb163f0706741ac003a94dc0e0aa85a28a",
+    "Client.cs": "c0ec529c8bd829bd6e59c93429789d5221cfba30e9c19661d67c4a4bd42ced37",
+    "Ui.cs": "f7625ef4ddaaec1dbf28eca939599ae54da2fa059aa12341d650f483b99460f0",
+    "Worker.cs": "03b082f8526342ed55990de2b699cd979a652a003db51b007c6fef0aeee72295",
+    "Client.manifest": "f4a22794c7e0b0da1f56992bce0d6abdfb8ea9f68a743e8d50e7282c5c16ae89",
+    "tests/Core.Tests.ps1": "9d617eb6993e2798e67b039440f7ecc769c18825812fc8e9364c6147a35e4aff",
+    "README.md": "59bed538ef5a52d861918cfc688c906c9df09231bb166139888f0ddf20b33aab",
+    "build.py": "e639a3e8cc0d21452d38941b907f6913e3f34f883e3c3f6e3e3714a67da04390",
+    "make_assets.py": "d580d316bf77068ce842f19c3564c72e1d235be972f3945836f0d1b14862f48b",
+    "assets/app.ico": "aa257b44c0979d9cf986fc10fa1895af1371493ac9cffa54173d13feba38c075",
+    "assets/app.png": "b0fd80143a4234d68ffe6d5338cb96fe7a4c841fed0a5dcce2e7cf47e49dd30e",
+    "assets/app.svg": "3f6ee89e037fb6ad7de5a3b396222be5cbb5beb3e3bb075d6f4812cab140884e"
+  },
+  "verification": [
+    "ZIP CRC, allowlist, unique root, extracted byte equality",
+    "PE subsystem Windows GUI; runtime GetConsoleWindow is null",
+    "49 isolated checks through embedded engine in packaged EXE",
+    "GUI all/none selection, default targets, plan switching, asynchronous worker with UI message pump, isolated startup shortcut, bounds and offscreen render"
+  ],
+  "limitations": [
+    "No real shutdown/reset cycle or physical multi-drive test",
+    "No real user data or startup entries modified",
+    "No actual Clash/TUN integration test",
+    "Unsigned executable",
+    "High-DPI multi-monitor behavior not tested"
+  ]
+}

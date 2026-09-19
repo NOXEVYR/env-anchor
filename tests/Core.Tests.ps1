@@ -123,4 +123,77 @@ Resume-State $batchState $batchStore
 Check ((Read-State $batchStore).Entries[0].Target -eq $next) 'resume commits already switched junction'
 Undo-State $batchState $batchStore
 Check ((Get-Content -LiteralPath (Join-Path $entry.Source 'setting.txt')) -eq 'Desktop') 'undo after relocation restores latest files'
+$regStore=Join-Path $fixture 'RegressionPlan'
+$regOne=Join-Path $fixture 'RegressionInputOne'
+$regTwo=Join-Path $fixture 'RegressionInputTwo'
+New-Item -ItemType Directory -Path $regOne,$regTwo | Out-Null
+Set-Content -LiteralPath (Join-Path $regOne 'data.txt') -Value 'one'
+Set-Content -LiteralPath (Join-Path $regTwo 'data.txt') -Value 'two'
+$regJobs=@([pscustomobject]@{Source=$regOne;Target=(Join-Path $fixture 'RegressionTargetOne');Name='one'},[pscustomobject]@{Source=$regTwo;Target=(Join-Path $fixture 'RegressionTargetTwo');Name='two'})
+Invoke-PlanOperation Apply $regStore (ConvertTo-Json -InputObject $regJobs)
+Check ((Read-State $regStore).Entries.Count -eq 2) 'dispatcher creates multi-entry plan'
+Invoke-PlanOperation Undo $regStore (ConvertTo-Json -InputObject @($regJobs[0]))
+$regState=Read-State $regStore
+Check ($regState.Entries[0].Phase -eq 'Restored' -and $regState.Entries[1].Phase -eq 'Linked') 'selective undo leaves other entry linked'
+$regJobs[0].Target=Join-Path $fixture 'RegressionTargetOneAgain'
+Invoke-PlanOperation Apply $regStore (ConvertTo-Json -InputObject @($regJobs[0]))
+Check ((Read-State $regStore).Entries.Count -eq 2) 'restored entry can migrate again without disturbing others'
+Check (Test-Path -LiteralPath (Join-Path $regStore 'operations.log')) 'operation log records results'
+$held=[IO.File]::Open((Join-Path $regStore '.operation.lock'),[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+$rejected=$false
+try {Invoke-PlanOperation Resume $regStore} catch {$rejected=$_.Exception.Message -like '*另一个窗口*'} finally {$held.Dispose()}
+Check $rejected 'parallel operation on same plan is blocked'
+Invoke-PlanOperation Resume $regStore
+Check $true 'plan lock released after conflict'
+$regState=Read-State $regStore
+$regEntry=$regState.Entries[0]
+[IO.Directory]::Delete($regEntry.Source)
+New-Item -ItemType Directory -Path $regEntry.Source | Out-Null
+Set-Content -LiteralPath (Join-Path $regEntry.Source 'data.txt') -Value 'reset baseline'
+Move-EntryTarget $regEntry $regEntry.Target $regState $regStore
+Check (Test-OurLink $regEntry.Source $regEntry.Target) 'same-target apply repairs reset connection'
+$outside=Join-Path $fixture 'SyntheticOutside'
+New-Item -ItemType Directory -Path $outside | Out-Null
+$linkedDest=Join-Path $fixture 'LinkedCopyDestination'
+New-Item -ItemType Junction -Path $linkedDest -Target $outside | Out-Null
+$rejected=$false
+try {Copy-Verified $regEntry.Target $linkedDest} catch {$rejected=$true}
+Check ($rejected -and -not (Test-Path -LiteralPath (Join-Path $outside 'data.txt'))) 'copy refuses linked destination without writing through it'
+[IO.Directory]::Delete($linkedDest)
+$lost=[pscustomobject]@{Label='lost';Source=(Join-Path $fixture 'MissingOriginal');Target=$regEntry.Target;Phase='Copying';Backups=@()}
+$rejected=$false
+try {Undo-State ([pscustomobject]@{Entries=@($lost)}) $regStore} catch {$rejected=$true}
+Check ($rejected -and -not (Test-Path -LiteralPath $lost.Source)) 'incomplete copy is never restored as complete data'
+$stale=Join-Path $fixture 'StaleRelocation'
+Copy-Verified $regEntry.Target $stale
+$regEntry | Add-Member -NotePropertyName PendingTarget -NotePropertyValue $stale -Force
+$regEntry.Phase='RelocatingReady'; Save-State $regState $regStore
+Set-Content -LiteralPath (Join-Path $regEntry.Target 'data.txt') -Value 'edited after copying'
+$rejected=$false
+try {Complete-Relocation $regEntry $regState $regStore} catch {$rejected=$true}
+Check ($rejected -and (Test-OurLink $regEntry.Source $regEntry.Target)) 'stale relocation copy cannot replace newer source data'
+$regEntry.Phase='Linked';$regEntry.PendingTarget='';Save-State $regState $regStore
+$historyOne=Join-Path $fixture 'HistoryOne';$historyTwo=Join-Path $fixture 'HistoryTwo'
+Move-EntryTarget $regEntry $historyOne $regState $regStore
+Move-EntryTarget $regEntry $historyTwo $regState $regStore
+Check (@($regEntry.PreviousTargets).Count -eq 2) 'successive relocations retain all previous target records'
+$badStore=Join-Path $fixture 'BadBatchPlan'
+$badSource=Join-Path $fixture 'UntouchedSource'; New-Item -ItemType Directory -Path $badSource | Out-Null
+$badJobs=@([pscustomobject]@{Source=$badSource;Target=(Join-Path $fixture 'UnusedTarget');Name='valid'},[pscustomobject]@{Source=(Join-Path $fixture 'DoesNotExist');Target=(Join-Path $fixture 'UnusedTarget2');Name='invalid'})
+$rejected=$false
+try {Invoke-PlanOperation Apply $badStore (ConvertTo-Json -InputObject $badJobs)} catch {$rejected=$true}
+Check ($rejected -and -not (Test-Path -LiteralPath (Join-Path $fixture 'UnusedTarget'))) 'invalid later batch item prevents earlier file changes'
+Check (-not (Test-Path -LiteralPath (Join-Path $badStore 'state.json'))) 'failed batch validation leaves no misleading plan'
+$lockedFile=Join-Path $regEntry.Target 'data.txt'
+$handle=[IO.File]::Open($lockedFile,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+$rejected=$false
+try {Copy-Verified $regEntry.Target (Join-Path $fixture 'LockedCopy')} catch {$rejected=$true} finally {$handle.Dispose()}
+Check ($rejected -and (Test-OurLink $regEntry.Source $regEntry.Target)) 'locked file fails without changing live connection'
+$staleAgain=Join-Path $fixture 'StaleAgain'
+Copy-Verified $regEntry.Target $staleAgain
+$regEntry.PendingTarget=$staleAgain; $regEntry.Phase='RelocatingReady'; Save-State $regState $regStore
+Set-Content -LiteralPath (Join-Path $regEntry.Target 'data.txt') -Value 'latest after failed relocation'
+Undo-State $regState $regStore @($regEntry.Source)
+Check ((Get-Content -LiteralPath (Join-Path $regEntry.Source 'data.txt')) -eq 'latest after failed relocation') 'undo can safely abandon stale pending relocation'
+Check (Test-Path -LiteralPath $staleAgain) 'abandoned relocation copy is retained for inspection'
 Write-Output "Isolated fixture retained: $fixture"
