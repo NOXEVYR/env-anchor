@@ -4,6 +4,14 @@
 <p align="center">你的环境，安心保留。<br>Windows 10 个人文件与软件配置迁移工具</p>
 <p align="center"><b>0.5.0</b> · 单文件客户端 · 无控制台 · 本地运行</p>
 
+## 下载
+
+**[下载 Windows 便携包](https://github.com/turnsolesama/env-anchor/releases/download/v0.5.0/EnvAnchor-0.5.0-win10-portable.zip)** · [单文件 EXE](https://github.com/turnsolesama/env-anchor/releases/download/v0.5.0/EnvAnchor-0.5.0.exe) · [版本记录](https://github.com/turnsolesama/env-anchor/releases/tag/v0.5.0)
+
+双击 `EnvAnchor.exe` 即可运行。迁移前退出相关软件，先用无重要数据的目录验证。自动重连入口仍需保存进系统还原基线。
+
+[发布与校验记录](docs/RELEASE-0.5.0.md)
+
 ![环境锚点界面，路径为示意数据](docs/preview.png)
 
 ## 从重置电脑，到熟悉的环境
