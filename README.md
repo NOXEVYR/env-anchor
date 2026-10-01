@@ -2,13 +2,15 @@
 
 <h1 align="center">环境锚点 · EnvAnchor</h1>
 <p align="center">整理环境，保留文件，找回引用。<br>Windows 个人目录迁移与恢复工具</p>
-<p align="center"><b>0.8.0-preview.1 · 源码预览，安装包待发布</b> · 单文件客户端 · 无控制台 · 后台处理</p>
+<p align="center"><b>0.8.0-preview.1 · 功能预览版（Pre-release）</b> · 单文件客户端 · 无控制台 · 后台处理</p>
 
-此仓库包含基于 `38fc611` 完成的 `0.8.0-preview.1` 源码、示例截图及候选构建验证记录。**0.8 预览安装包尚未上传到 GitHub Release**；以下新增功能介绍对应 0.8 源码，不代表 0.6.0 稳定版的功能。
+[0.8.0-preview.1 预览版已发布](https://github.com/NOXEVYR/env-anchor/releases/tag/v0.8.0-preview.1)：[下载便携 ZIP（382,915 字节）](https://github.com/NOXEVYR/env-anchor/releases/download/v0.8.0-preview.1/EnvAnchor-0.8.0-preview.1-win10-portable.zip) · [下载单文件 EXE（326,144 字节）](https://github.com/NOXEVYR/env-anchor/releases/download/v0.8.0-preview.1/EnvAnchor-0.8.0-preview.1.exe) · [验证记录](https://github.com/NOXEVYR/env-anchor/releases/download/v0.8.0-preview.1/verification-0.8.0-preview.1.json)。双击 EXE，或解压便携 ZIP 后运行 `EnvAnchor.exe`。运行不需要 Python，EXE 未签名。
 
-公开稳定版仍为 [0.6.0](https://github.com/NOXEVYR/env-anchor/releases/tag/v0.6.0)：[下载便携 ZIP](https://github.com/NOXEVYR/env-anchor/releases/download/v0.6.0/EnvAnchor-0.6.0-win10-portable.zip) · [下载单文件 EXE](https://github.com/NOXEVYR/env-anchor/releases/download/v0.6.0/EnvAnchor-0.6.0.exe)。如已取得 0.8 本地候选，可双击 `EnvAnchor-0.8.0-preview.1.exe`，或解压同版本便携 ZIP 后运行 `EnvAnchor.exe`。
+本版是功能预览，公开稳定版仍为 [0.6.0](https://github.com/NOXEVYR/env-anchor/releases/tag/v0.6.0)：[稳定版 ZIP](https://github.com/NOXEVYR/env-anchor/releases/download/v0.6.0/EnvAnchor-0.6.0-win10-portable.zip) · [稳定版 EXE](https://github.com/NOXEVYR/env-anchor/releases/download/v0.6.0/EnvAnchor-0.6.0.exe)。以下新增功能介绍对应 0.8，不代表 0.6.0 稳定版的功能。
 
-0.8 的候选验证 JSON、CHANGELOG、实现说明和包内使用说明保留构建时的“本地、未发布”状态记录。本页说明当前公开状态；包内历史界面文档的离线链接缺失时，可查看仓库中的 [UI-REDESIGN.md](docs/UI-REDESIGN.md)。
+预览包固定于源码提交 [`0f4ed6a`](https://github.com/NOXEVYR/env-anchor/commit/0f4ed6a2a1e386394aafb33827943dc171f6d049)，发布沿用已验证的原始候选文件，没有重新构建。三个附件已经回下载核对大小及 SHA-256，ZIP 的 CRC、单根目录和内含 EXE 一致性均通过。附件大小、摘要和使用边界见 Release 说明。
+
+候选验证 JSON、CHANGELOG、实现说明及包内使用说明保留构建时的“本地、未发布”状态记录；固定源码提交中的 README 也保留发布前状态。本页及 Release 说明当前公开状态。包内历史界面文档的离线链接缺失时，可查看 [UI-REDESIGN.md](docs/UI-REDESIGN.md)。
 
 ![环境清单，全部为示例路径](docs/preview.png)
 
