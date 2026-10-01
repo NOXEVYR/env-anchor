@@ -1,0 +1,359 @@
+name: Publish verified EnvAnchor 0.8 preview
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-0.8-preview.yml']
+permissions:
+  contents: read
+concurrency:
+  group: env-anchor-publish-0.8-preview
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'NOXEVYR/env-anchor' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Verify fixed candidate, upload draft, read back and publish preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: 0f4ed6a2a1e386394aafb33827943dc171f6d049
+        run: |
+          python3 - <<'PY'
+          #!/usr/bin/env python3
+          """Publish only the reviewed EnvAnchor candidate; no build or application execution."""
+          import argparse
+          import hashlib
+          import io
+          import json
+          import os
+          from pathlib import Path, PurePosixPath
+          import re
+          import stat
+          import sys
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          import zipfile
+          
+          REPO = "NOXEVYR/env-anchor"
+          TAG = "v0.8.0-preview.1"
+          STABLE = "v0.6.0"
+          FIXED_COMMIT = "0f4ed6a2a1e386394aafb33827943dc171f6d049"
+          TITLE = "环境锚点 0.8.0-preview.1 · 环境迁移与引用恢复预览"
+          API = "https://api.github.com/repos/" + REPO
+          ASSETS = {
+              "EnvAnchor-0.8.0-preview.1.exe": (326144, "e01d464d946366cb43b883dc55985efd522208a6470c733837036d08594f7d41", "application/vnd.microsoft.portable-executable"),
+              "EnvAnchor-0.8.0-preview.1-win10-portable.zip": (382915, "5a5e5779287c4a0ab839b4053e66d9b11048a361c94424e3847114c1ade68f05", "application/zip"),
+              "verification-0.8.0-preview.1.json": (3315, "9246b41f7b4653b44f6008462043d1e6310c884162a628dc9cf20f734f402095", "application/json"),
+          }
+          ZIP_FILES = {
+              "EnvAnchor/EnvAnchor.exe", "EnvAnchor/使用说明.md", "EnvAnchor/assets/app.svg",
+              "EnvAnchor/docs/preview.png", "EnvAnchor/docs/preview-compact.png",
+              "EnvAnchor/docs/preview-wide.png", "EnvAnchor/docs/preview-references.png",
+              "EnvAnchor/docs/preview-recovery.png", "EnvAnchor/docs/IMPLEMENTATION-0.8.md",
+              "EnvAnchor/CHANGELOG.md",
+          }
+          SOURCE_FILES = {
+              "Core.ps1", "Preflight.ps1", "Environment.ps1", "EnvAnchor.ps1", "Client.cs",
+              "Ui.cs", "Worker.cs", "Client.manifest", "tests/Core.Tests.ps1",
+              "tests/Preflight.Tests.ps1", "tests/Environment.Tests.ps1", "tests/Ui.Tests.ps1",
+              "README.md", "docs/IMPLEMENTATION-0.8.md", "CHANGELOG.md", "AGENTS.md",
+              "build.py", "make_assets.py", "assets/app.ico", "assets/app.png", "assets/app.svg",
+          }
+          NOTES = """Windows 10 环境迁移与引用恢复的功能预览版。0.6.0 仍为稳定版，本次保持 prerelease，不替换稳定版和旧附件。
+          
+          - 明亮简洁的桌面界面：环境清单、引用诊断、重连与恢复、操作记录及执行确认；支持草稿、筛选、后台进度和忙碌状态控制。
+          - 同机换盘/目录迁移：复制与逐文件 SHA-256 校验，保留原目录副本，以 NTFS 目录联接兼容旧路径；提供预检、恢复与撤销。
+          - 重装/换账户/换机：提前导出恢复清单，显式映射用户目录和数据位置，建立当前用户的新方案后另行预检重连。清单不包含数据文件，所需软件仍需重新安装。
+          - 引用修复仅支持 JSON 字符串值及快捷方式目标/工作目录，备份后写入；其他格式仅诊断，虚拟环境提示重新创建。不能保证所有软件、注册表、插件或项目引用自动恢复。
+          
+          附件沿用已核验的候选原始字节，未重新构建。已有验证为最终包 EXE 的 260 项隔离引擎检查和 89 项实际 WinForms 控件/后台任务集成检查，截图来自 Demo 合成路径的离屏渲染。未进行真实用户迁移、真实重置/重装周期、多物理盘、Clash/TUN 或高 DPI 多显示器验收；EXE 未签名。请先备份并用合成数据或独立副本评估。
+          
+          包内使用说明、CHANGELOG、实现说明和 verification JSON 保留构建时“本地、未发布”的历史记录。本 Release 说明当前公开状态；固定提交下的 [README](https://github.com/NOXEVYR/env-anchor/blob/@@COMMIT@@/README.md) 保留发布前源码预览状态。包内缺少历史 UI 文档的离线链接时，请查看 [UI-REDESIGN.md](https://github.com/NOXEVYR/env-anchor/blob/@@COMMIT@@/docs/UI-REDESIGN.md)；[实现说明](https://github.com/NOXEVYR/env-anchor/blob/@@COMMIT@@/docs/IMPLEMENTATION-0.8.md) 同样是候选阶段记录。
+          
+          固定源码提交：`@@COMMIT@@`。验证 JSON 的 21 项源文件摘要来自构建时快照；公开 README 仅作发布及使用边界说明调整。
+          
+          附件 SHA-256：
+          
+          ```text
+          e01d464d946366cb43b883dc55985efd522208a6470c733837036d08594f7d41  EnvAnchor-0.8.0-preview.1.exe  (326144 bytes)
+          5a5e5779287c4a0ab839b4053e66d9b11048a361c94424e3847114c1ade68f05  EnvAnchor-0.8.0-preview.1-win10-portable.zip  (382915 bytes)
+          9246b41f7b4653b44f6008462043d1e6310c884162a628dc9cf20f734f402095  verification-0.8.0-preview.1.json  (3315 bytes)
+          ```
+          """
+          
+          
+          class Stop(Exception):
+              pass
+          
+          
+          def require(condition, message):
+              if not condition:
+                  raise Stop(message)
+          
+          
+          class SafeRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  require(urllib.parse.urlsplit(newurl).scheme == "https", "Refused non-HTTPS redirect")
+                  redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+                  if redirected is not None:
+                      old = urllib.parse.urlsplit(req.full_url)
+                      new = urllib.parse.urlsplit(newurl)
+                      if (old.scheme, old.netloc) != (new.scheme, new.netloc):
+                          redirected.remove_header("Authorization")
+                  return redirected
+          
+          
+          class GitHub:
+              def __init__(self, token):
+                  self.token = token
+                  self.opener = urllib.request.build_opener(SafeRedirect())
+          
+              def request(self, url, *, method="GET", payload=None, binary=None,
+                          content_type=None, limit=2 * 1024 * 1024, missing=False, auth=True):
+                  parsed = urllib.parse.urlsplit(url)
+                  require(parsed.scheme == "https", "Refused non-HTTPS URL")
+                  headers = {"User-Agent": "EnvAnchor-fixed-candidate-publisher",
+                             "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+                  if auth:
+                      require(parsed.netloc in {"api.github.com", "uploads.github.com"}, "Refused credential destination")
+                      headers["Authorization"] = "Bearer " + self.token
+                  data = None
+                  if payload is not None:
+                      data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                      headers["Content-Type"] = "application/json"
+                  if binary is not None:
+                      data = binary
+                      headers["Content-Type"] = content_type
+                  if content_type == "application/octet-stream" and binary is None:
+                      headers["Accept"] = "application/octet-stream"
+                  # GETs may retry; an uncertain write is never retried automatically.
+                  attempts = 3 if method == "GET" else 1
+                  for attempt in range(attempts):
+                      try:
+                          req = urllib.request.Request(url, data=data, headers=headers, method=method)
+                          with self.opener.open(req, timeout=45) as response:
+                              result = response.read(limit + 1)
+                          require(len(result) <= limit, "Response exceeded fixed size bound")
+                          return result
+                      except urllib.error.HTTPError as error:
+                          if missing and error.code == 404:
+                              return None
+                          retryable = error.code in {429, 500, 502, 503, 504} or (error.code == 404 and not auth)
+                          if retryable and attempt + 1 < attempts:
+                              time.sleep(2 * (attempt + 1))
+                              continue
+                          raise Stop("HTTP %d %s" % (error.code, parsed.path)) from None
+                      except (urllib.error.URLError, TimeoutError):
+                          if attempt + 1 < attempts:
+                              time.sleep(2 * (attempt + 1))
+                              continue
+                          raise Stop("Network failure %s" % parsed.path) from None
+          
+              def json(self, path, **kwargs):
+                  result = self.request(API + path, **kwargs)
+                  return None if result is None else json.loads(result)
+          
+          
+          def check_bytes(name, data):
+              size, digest, _ = ASSETS[name]
+              require(len(data) == size, "Size mismatch: " + name)
+              require(hashlib.sha256(data).hexdigest() == digest, "SHA-256 mismatch: " + name)
+          
+          
+          def validate_candidate(files):
+              require(set(files) == set(ASSETS), "Candidate asset allowlist mismatch")
+              for name, data in files.items():
+                  check_bytes(name, data)
+              manifest = json.loads(files["verification-0.8.0-preview.1.json"])
+              require(manifest.get("version") == TAG[1:], "Manifest version mismatch")
+              require(manifest.get("engine_checks") == 260 and manifest.get("ui_checks") == 89,
+                      "Manifest verification counts mismatch")
+              require(manifest.get("package") == "EnvAnchor-0.8.0-preview.1-win10-portable.zip"
+                      and manifest.get("bytes") == ASSETS[manifest["package"]][0]
+                      and manifest.get("sha256") == ASSETS[manifest["package"]][1], "Manifest ZIP identity mismatch")
+              exe = manifest.get("exe", {})
+              require(exe.get("name") == "EnvAnchor-0.8.0-preview.1.exe"
+                      and exe.get("bytes") == ASSETS[exe["name"]][0]
+                      and exe.get("sha256") == ASSETS[exe["name"]][1], "Manifest EXE identity mismatch")
+              sources = manifest.get("sources", {})
+              require(set(sources) == SOURCE_FILES and all(re.fullmatch(r"[0-9a-f]{64}", v)
+                      for v in sources.values()), "Manifest source allowlist mismatch")
+              with zipfile.ZipFile(io.BytesIO(files[manifest["package"]])) as archive:
+                  entries = archive.infolist()
+                  require(len(entries) == 10 and {i.filename for i in entries} == ZIP_FILES,
+                          "ZIP allowlist or duplicate-entry mismatch")
+                  require(sum(i.file_size for i in entries) <= 800000, "ZIP expanded size exceeded")
+                  for entry in entries:
+                      path = PurePosixPath(entry.filename)
+                      require(not path.is_absolute() and not any(p in {".", ".."} for p in path.parts)
+                              and "\\" not in entry.filename and ":" not in entry.filename
+                              and path.parts[0] == "EnvAnchor" and not entry.is_dir()
+                              and not (entry.flag_bits & 1)
+                              and stat.S_IFMT(entry.external_attr >> 16) in {0, stat.S_IFREG},
+                              "ZIP unsafe path/type")
+                  require(archive.testzip() is None, "ZIP CRC mismatch")
+                  require(archive.read("EnvAnchor/EnvAnchor.exe") == files[exe["name"]], "ZIP EXE mismatch")
+                  for packed, original in {
+                      "EnvAnchor/使用说明.md": "README.md",
+                      "EnvAnchor/assets/app.svg": "assets/app.svg",
+                      "EnvAnchor/docs/IMPLEMENTATION-0.8.md": "docs/IMPLEMENTATION-0.8.md",
+                      "EnvAnchor/CHANGELOG.md": "CHANGELOG.md",
+                  }.items():
+                      require(hashlib.sha256(archive.read(packed)).hexdigest() == sources[original],
+                              "ZIP build snapshot mismatch: " + original)
+          
+          
+          def releases(api):
+              result = []
+              for page in range(1, 21):
+                  batch = api.json("/releases?per_page=100&page=" + str(page))
+                  require(isinstance(batch, list), "Invalid release collection")
+                  result.extend(batch)
+                  if len(batch) < 100:
+                      return result
+              raise Stop("Release pagination bound exceeded")
+          
+          
+          def historical_snapshot(items):
+              release_keys = ("id", "tag_name", "target_commitish", "name", "body", "draft", "prerelease",
+                              "created_at", "published_at", "updated_at")
+              asset_keys = ("id", "name", "label", "size", "digest", "content_type", "state", "created_at", "updated_at")
+              return {str(r["id"]): {**{k: r.get(k) for k in release_keys},
+                      "assets": sorted([{k: a.get(k) for k in asset_keys} for a in r["assets"]], key=lambda a: a["id"])}
+                      for r in items if r["tag_name"] != TAG}
+          
+          
+          def check_stable(api):
+              latest = api.json("/releases/latest")
+              require(latest["tag_name"] == STABLE and latest["draft"] is False
+                      and latest["prerelease"] is False, "Stable/latest release changed")
+          
+          
+          def check_metadata(release, commit, body):
+              require(release["tag_name"] == TAG and release["target_commitish"] == commit
+                      and release["prerelease"] is True and release["name"] == TITLE
+                      and release["body"] == body, "Existing preview metadata mismatch; no overwrite")
+          
+          
+          def check_tag(api, commit, *, required=False):
+              tag = api.json("/git/ref/tags/" + TAG, missing=True)
+              require(tag is not None or not required, "Published tag missing")
+              if tag is not None:
+                  require(tag["object"]["type"] == "commit" and tag["object"]["sha"] == commit,
+                          "Existing tag mismatch; no overwrite")
+          
+          
+          def validate_remote_assets(api, release, *, public=False):
+              names = [a["name"] for a in release["assets"]]
+              require(len(names) == 3 and set(names) == set(ASSETS), "Remote asset allowlist mismatch")
+              downloaded = {}
+              for asset in release["assets"]:
+                  name = asset["name"]
+                  size, digest, mime = ASSETS[name]
+                  require(asset["size"] == size and asset.get("digest") == "sha256:" + digest
+                          and asset["state"] == "uploaded" and asset["content_type"] == mime,
+                          "Remote asset metadata mismatch: " + name)
+                  if public:
+                      url = "https://github.com/" + REPO + "/releases/download/" + TAG + "/" + name
+                      require(asset["browser_download_url"] == url, "Public asset URL mismatch")
+                      downloaded[name] = api.request(url, auth=False, limit=size)
+                  else:
+                      downloaded[name] = api.request(API + "/releases/assets/" + str(asset["id"]),
+                                                     content_type="application/octet-stream", limit=size)
+              validate_candidate(downloaded)
+          
+          
+          def publish():
+              require(os.environ.get("GITHUB_REPOSITORY") == REPO, "Repository guard failed")
+              require(os.environ.get("GITHUB_REF") == "refs/heads/main", "Branch guard failed")
+              commit = os.environ.get("RELEASE_COMMIT", "")
+              require(re.fullmatch(r"[0-9a-f]{40}", commit) is not None and commit == FIXED_COMMIT,
+                      "Fixed commit guard failed")
+              token = os.environ.get("GH_TOKEN", "")
+              require(bool(token), "Workflow token missing")
+              api = GitHub(token)
+              require(api.json("/commits/" + commit)["sha"] == commit, "Fixed commit unavailable")
+              check_stable(api)
+              existing_releases = releases(api)
+              before = historical_snapshot(existing_releases)
+              matching = [r for r in existing_releases if r["tag_name"] == TAG]
+              require(len(matching) <= 1, "Duplicate preview releases")
+              check_tag(api, commit)
+              files = {name: api.request("https://raw.githubusercontent.com/" + REPO + "/" + commit
+                       + "/releases/" + name, auth=False, limit=spec[0]) for name, spec in ASSETS.items()}
+              validate_candidate(files)
+              print("Fixed candidate verified: 3 assets, SHA-256, manifest, ZIP CRC/allowlist/EXE")
+              body = NOTES.replace("@@COMMIT@@", commit)
+              release = matching[0] if matching else api.json("/releases/tags/" + TAG, missing=True)
+              if release is None:
+                  release = api.json("/releases", method="POST", payload={"tag_name": TAG,
+                      "target_commitish": commit, "name": TITLE, "body": body,
+                      "draft": True, "prerelease": True, "make_latest": "false"})
+              check_metadata(release, commit, body)
+              # A crash may have left a matching draft. Resume only its missing assets.
+              present = [a["name"] for a in release["assets"]]
+              require(len(present) == len(set(present)) and set(present) <= set(ASSETS),
+                      "Existing assets conflict; no overwrite")
+              if not release["draft"]:
+                  require(set(present) == set(ASSETS), "Published release incomplete; no mutation")
+              for asset in release["assets"]:
+                  size, digest, mime = ASSETS[asset["name"]]
+                  require(asset["size"] == size and asset.get("digest") == "sha256:" + digest
+                          and asset["content_type"] == mime and asset["state"] == "uploaded",
+                          "Existing asset differs; no overwrite")
+              if release["draft"]:
+                  expected_upload = "https://uploads.github.com/repos/" + REPO + "/releases/" + str(release["id"]) + "/assets"
+                  require(release["upload_url"].split("{")[0] == expected_upload, "Upload URL guard failed")
+                  for name in ASSETS:
+                      if name not in present:
+                          api.request(expected_upload + "?name=" + urllib.parse.quote(name, safe=""),
+                              method="POST", binary=files[name], content_type=ASSETS[name][2])
+                  release = api.json("/releases/" + str(release["id"]))
+                  check_metadata(release, commit, body)
+                  validate_remote_assets(api, release)
+                  check_stable(api)
+                  require(historical_snapshot(releases(api)) == before, "Historical releases changed before publication")
+                  release = api.json("/releases/" + str(release["id"]), method="PATCH",
+                      payload={"draft": False, "prerelease": True, "make_latest": "false"})
+              release = api.json("/releases/" + str(release["id"]))
+              check_metadata(release, commit, body)
+              require(release["draft"] is False, "Preview remains draft")
+              check_tag(api, commit, required=True)
+              validate_remote_assets(api, release, public=True)
+              check_stable(api)
+              require(historical_snapshot(releases(api)) == before, "Historical release/asset state changed")
+              print(json.dumps({"release_url": release["html_url"], "source_commit": commit,
+                  "draft": False, "prerelease": True, "stable_latest": STABLE,
+                  "historical_releases_and_assets_unchanged": True,
+                  "assets": [{"name": n, "bytes": s[0], "sha256": s[1]} for n, s in ASSETS.items()]},
+                  ensure_ascii=False, indent=2))
+          
+          
+          def main():
+              parser = argparse.ArgumentParser(description=__doc__)
+              parser.add_argument("--verify-only", type=Path, metavar="LOCAL_RELEASES_DIR",
+                                  help="Validate the three local candidate files; no network or app execution")
+              args = parser.parse_args()
+              if args.verify_only is not None:
+                  validate_candidate({n: (args.verify_only / n).read_bytes() for n in ASSETS})
+                  print("Local static candidate verification passed (3 assets; no application executed)")
+              else:
+                  publish()
+          
+          
+          if __name__ == "__main__":
+              try:
+                  main()
+              except Stop as error:
+                  print("STOP: " + str(error), file=sys.stderr)
+                  sys.exit(1)
+              except Exception as error:
+                  # Do not expose request objects, headers, response bodies or environment values.
+                  print("STOP: " + type(error).__name__, file=sys.stderr)
+                  sys.exit(1)
+          PY
