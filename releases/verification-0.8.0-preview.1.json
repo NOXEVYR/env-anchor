@@ -1,0 +1,52 @@
+{
+  "version": "0.8.0-preview.1",
+  "source": "Local functional preview based on upstream 38fc611dee4d8681ea0bf0b64da1ec7238eccf34; not committed or published.",
+  "package": "EnvAnchor-0.8.0-preview.1-win10-portable.zip",
+  "bytes": 382915,
+  "sha256": "5a5e5779287c4a0ab839b4053e66d9b11048a361c94424e3847114c1ade68f05",
+  "exe": {
+    "name": "EnvAnchor-0.8.0-preview.1.exe",
+    "bytes": 326144,
+    "sha256": "e01d464d946366cb43b883dc55985efd522208a6470c733837036d08594f7d41"
+  },
+  "sources": {
+    "Core.ps1": "c24802003e00c0e978825be8077d2831df1d400dee71657a9ba44775d95bbbdd",
+    "Preflight.ps1": "f82cc213e08b8c13ae4ce3bc140180568e28b4b9e599b3ff9194e097172ec421",
+    "Environment.ps1": "5f66f41d35c3dd530b38f85a7db3edccc764cddc7fc2af6997834bbe21318dca",
+    "EnvAnchor.ps1": "4ff5931ffe1c50f5e7b63104cc816a4404c833030af57ae51af15898dc064570",
+    "Client.cs": "a4464ecfc14a7c2b1a8e7964bb96cd574245dbe97192cf735e18b181251bfc28",
+    "Ui.cs": "9e5b4903d241007eedc474c3821b355e556d64cd175d638f09d5f28485dde34a",
+    "Worker.cs": "fe92bee1c81ff5cbe7a0eae1143ca63f9438b1a9bbaf9fbf385814a346d6ee06",
+    "Client.manifest": "90c690c1bd24b663ade27aceb80122f19b06e28835d8109a8cf4017c158e2c07",
+    "tests/Core.Tests.ps1": "4def7249e6130b6692627b5a3eb6054f378f77405783126ed740c9b0952e8c12",
+    "tests/Preflight.Tests.ps1": "bf34930ee9be664d34632bc653b3a4ae5178410c2146538d233a979326dced9b",
+    "tests/Environment.Tests.ps1": "2441ef7a04952eeb83f11153cf09ce764dba05d9e47b64ef92d22b433386fb25",
+    "tests/Ui.Tests.ps1": "73fcc965ca777b85ad77e620d92dd3d7d7f54f67b1057d5af38cbb1bc683c5d6",
+    "README.md": "fd277263238f9f669b3f5d0444e32c5439325d109875f8e08742aea06c8c9fff",
+    "docs/IMPLEMENTATION-0.8.md": "f89ad36766c6f588952a459c91d1a34aa5b516efe587cd8d294957a5e9db679e",
+    "CHANGELOG.md": "d285fc5aa99ec48f0e4770ae49c4f8327e69966e31b2f35143d278961a5388f3",
+    "AGENTS.md": "c04fed40ef01413cb542f3c4b1691ee0a2b81cf68b55112310e66f531de558fb",
+    "build.py": "bf59b8eb6fbb9e83fe99d48c842c43edcfddb4349998b2323229cd960fa4a760",
+    "make_assets.py": "992631645dd5ece0346e4dfe0b17e4ec7de34fd7a4f6da4b7e8e4dda381e584c",
+    "assets/app.ico": "aa257b44c0979d9cf986fc10fa1895af1371493ac9cffa54173d13feba38c075",
+    "assets/app.png": "b0fd80143a4234d68ffe6d5338cb96fe7a4c841fed0a5dcce2e7cf47e49dd30e",
+    "assets/app.svg": "3f6ee89e037fb6ad7de5a3b396222be5cbb5beb3e3bb075d6f4812cab140884e"
+  },
+  "engine_checks": 260,
+  "ui_checks": 89,
+  "verification": [
+    "ZIP CRC, allowlist, unique root, extracted byte equality",
+    "PE subsystem Windows GUI; runtime GetConsoleWindow is null",
+    "260 isolated checks through embedded engine in packaged EXE",
+    "89 checks through actual packaged WinForms controls and background workers",
+    "GUI drafts retained across jobs, failed plan open atomicity, nested busy control gate, background preflight and operation integration",
+    "References and recovery navigation; default, compact and wide layout bounds and offscreen renders"
+  ],
+  "limitations": [
+    "No real shutdown/reset or reinstall cycle or physical multi-drive test",
+    "No real user data or startup entries modified",
+    "No actual Clash/TUN integration test",
+    "Unsigned executable",
+    "High-DPI multi-monitor behavior not tested"
+  ]
+}

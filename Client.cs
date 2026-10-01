@@ -8,8 +8,9 @@ using System.Windows.Forms;
 using System.Runtime.InteropServices;
 
 [assembly: AssemblyTitle("环境锚点")]
-[assembly: AssemblyVersion("0.6.0.0")]
-[assembly: AssemblyFileVersion("0.6.0.0")]
+[assembly: AssemblyVersion("0.8.0.0")]
+[assembly: AssemblyFileVersion("0.8.0.0")]
+[assembly: AssemblyInformationalVersion("0.8.0-preview.1")]
 internal static class Client
 {
     [DllImport("kernel32.dll")] private static extern IntPtr GetConsoleWindow();
@@ -41,22 +42,28 @@ internal static class Client
                 runspace.ThreadOptions = PSThreadOptions.UseCurrentThread;
                 runspace.Open();
                 runspace.SessionStateProxy.SetVariable("EnvAnchorExecutable", Application.ExecutablePath);
-                runspace.SessionStateProxy.SetVariable("EnvAnchorCore", Resource("Core.ps1"));
+                string engine = Resource("Core.ps1") + "\r\n" + Resource("Preflight.ps1") + "\r\n" + Resource("Environment.ps1");
+                runspace.SessionStateProxy.SetVariable("EnvAnchorCore", engine);
+                runspace.SessionStateProxy.SetVariable("EnvAnchorUITests", Resource("Ui.Tests.ps1"));
                 using(var stream=Assembly.GetExecutingAssembly().GetManifestResourceStream("app.png"))
                 using(var image=System.Drawing.Image.FromStream(stream))
                     runspace.SessionStateProxy.SetVariable("EnvAnchorMark",new System.Drawing.Bitmap(image));
                 using (var ps = PowerShell.Create())
                 {
                     ps.Runspace = runspace;
-                    ps.AddScript(Resource("Core.ps1"), false).Invoke();
+                    ps.AddScript(engine, false).Invoke();
                     if (ps.Streams.Error.Count > 0) throw new Exception(ps.Streams.Error[0].ToString());
                     ps.Commands.Clear();
                     if (selfTest)
                     {
-                        var output = ps.AddScript(Resource("Core.Tests.ps1"), false).Invoke();
-                        if (ps.Streams.Error.Count > 0) throw new Exception(ps.Streams.Error[0].ToString());
                         using (var writer = new StreamWriter(Path.Combine(Path.GetTempPath(), "env-anchor-client-tests.txt")))
-                            foreach (var line in output) writer.WriteLine(line);
+                            foreach (string test in new string[] { "Core.Tests.ps1", "Preflight.Tests.ps1", "Environment.Tests.ps1" })
+                            {
+                                ps.Commands.Clear();
+                                var output = ps.AddScript(Resource(test), false).Invoke();
+                                if (ps.Streams.Error.Count > 0) throw new Exception(test + ": " + ps.Streams.Error[0].ToString());
+                                foreach (var line in output) writer.WriteLine(line);
+                            }
                         return 0;
                     }
                     ps.AddScript(Resource("EnvAnchor.ps1"), false)
